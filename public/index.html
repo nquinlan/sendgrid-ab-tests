@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>A/B Testing with SendGrid</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<!-- Bootstrap -->
+		<!-- http://getbootstrap.com/getting-started/#download-cdn -->
+		<link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap.min.css">
+
+		<!-- Bootstrap Date Picker -->
+		<!-- https://github.com/eternicode/bootstrap-datepicker -->
+		<link rel="stylesheet" href="/css/datepicker3.css">
+
+		<style>
+
+			.panel:nth-child(2n+1) {
+				background: #efefef;
+				padding: 2% 0;
+			}
+
+		</style>
+
+		<!-- Note: This does not work on IE < 9. It's no one's fault by my own (and Microsoft's).  -->
+		<!-- Note: In a real enviroment, you'd want all your javascript to be loaded right before the end of the body tag, but because I inlined Javascript, this is what you get. -->
+
+		<!-- jQuery -->
+		<script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js" ></script>
+		<!-- Bootstrap JavaScript -->
+		<!-- http://getbootstrap.com/getting-started/#download-cdn -->
+		<script src="//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min.js"></script>
+
+		<!-- Bootstrap Date Picker -->
+		<!-- https://github.com/eternicode/bootstrap-datepicker -->
+		<script src="/js/bootstrap-datepicker.js"></script>
+
+		<!-- Z-Score Calculator -->
+		<!-- http://www.fourmilab.ch/rpkp/experiments/analysis/zCalc.js -->
+		<script src="/js/zCalc.js"></script>
+
+		<!-- Decimal Rounding -->
+		<!-- https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/round#Example:_Decimal_rounding -->
+		<script src="/js/decimalrounding.js"></script>
+	</head>
+	<body data-run="false">
+		<header>
+			<h1>A/B Test SendGrid Email</h1>
+			<p class="muted">Compare categories and their metrics</p>
+		</header>
+		<div id="settings">
+			<div id="api-error"></div>
+			<form class="form-inline" id="settings-form">
+				<div class="form-group">
+					<label class="sr-only" for="sendgrid-username">SendGrid Username</label>
+					<input type="text" placeholder="SendGrid Username" name="sendgrid-username" id="sendgrid-username" class="form-control">
+				</div>
+				<div class="form-group">
+					<label class="sr-only" for="sendgrid-password">SendGrid Password</label>
+					<input type="text" placeholder="SendGrid Password" name="sendgrid-password" id="sendgrid-password" class="form-control">
+				</div>
+				<button class="btn btn-default" type="submit">Submit</button>
+			</form>
+			<div id="change-credentials">Modify Credentials</div>
+			<form class="form-inline" id="query-form">
+				<div class="form-group">
+					<label for="category-a">Category A</label>
+					<select type="text" placeholder="Category A" name="category-a" id="category-a" class="category form-control">
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="category-b">Category B</label>
+					<select type="text" placeholder="Category B" name="category-b" id="category-b" class="category form-control">
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="start-date">Start Date</label>
+					<input type="text" placeholder="Start Date" name="start-date" id="start-date" class="date form-control">
+				</div>
+				<div class="form-group">
+					<label for="end-date">End Date</label>
+					<input type="text" placeholder="End Date" name="end-date" id="end-date" class="date form-control">
+				</div>
+				<div class="form-group">
+					<label for="confidence">Confidence</label>
+					<input type="number" placeholder="Confidence" name="confidence" id="confidence" class="form-control" min="0" max="100" step="1" value="95">
+				</div>
+				<button class="btn btn-default" type="submit">Submit</button>
+			</div>
+		</div>
+		<div class="panel" id="unique_opens" data-type="positive">
+			<h2>Unique Opens</h2>
+			<div class="data"></div>
+		</div>
+		<div class="panel" id="unique_clicks" data-type="positive">
+			<h2>Unique Clicks</h2>
+			<div class="data"></div>
+		</div>
+		<div class="panel" id="unsubscribes" data-type="negative">
+			<h2>Unsubscribes</h2>
+			<div class="data"></div>
+		</div>
+		<div class="panel" id="spamreports" data-type="negative">
+			<h2>Spam Reports</h2>
+			<div class="data"></div>
+		</div>
+
+		<script>
+			// These functions are what's described in the blog post, all the other code, just gets us there
+			
+			// This looks up the z score
+			function zScore (confidence) {
+				return trimfloat(Math.abs(critz( confidence )), ROUND_FLOAT);
+			}
+
+			// This does the scary math we saw
+			function analyze (success, total, confidence) {
+				var p = success/total;
+				var o = Math.sqrt(1/total*p*(1-p));
+				var z = zScore(confidence);
+
+				return {
+					"max" : p + z*o,
+					"min" : p - z*o,
+					"confidenceInt" : z*o,
+					"standardDev" : o,
+					"probability" : p
+				};
+			}
+
+			// This determines winners, losers and the rest
+			function compare (tests, metric, confidence) {
+				var a = analyze(tests.a[metric], tests.a['delivered'], confidence);
+				var b = analyze(tests.b[metric], tests.b['delivered'], confidence);
+
+				// Determine the winner (without looking at statistical significance, yet)
+				// We'll always assume higher numbers are the winner (which is counterintuitive for spamreports, this will be reversed later)
+				var winner;
+				if(a.probability > b.probability){
+					winner = "a";
+				} else if (a.probability < b.probability) {
+					winner = "b";
+				} else {
+					winner = "-";
+				}
+
+				// Now we check the statistical significance by checking if the ranges overlap
+				var significant;
+				if(a.min <= b.max && b.min <= a.max){
+					significant = true;
+				} else { 
+					significant = false;
+				}
+
+				// The rest is all presentation code, you can ignore it
+				var $data = $("#" + metric + " .data");
+
+				// Reverse Winner/Loser if the thing is negative
+				if($data.attr("data-type") === "negative") {
+					winner = (winner === "a") ? "b" : ( (winner === "b") ? "a" : winner );
+				}
+
+				var winnerText;
+				if(significant && winner !== "-"){
+					winnerText = "Winner";
+				} else {
+					winnerText = "No Winner";
+					winner = "-";
+				}
+
+				// This is some really messy jQuery code to display the data
+				$data.text("");
+				$data.append('<table><tr><th>Test</th><th>Success</th><th>Failure</th></tr><tr><th>A</th><td>' + tests.a[metric] + '</td><td>' + (tests.a['delivered'] - tests.a[metric]) + '</td></tr><tr><th>B</th><td>' + tests.b[metric] + '</td><td>' + (tests.b['delivered'] - tests.b[metric]) + '</td></tr></table>');
+				$data.append('<div class="success-rate"><div class="test"><h3>A - Success Rate</h3><div>' + Math.round10(a.probability, -4) + ' &plusmn; ' + Math.round10(a.confidenceInt, -4) +  '</div></div><div class="test"><h3>B - Success Rate</h3><div>' + Math.round10(b.probability, -4) + ' &plusmn; ' + Math.round10(b.confidenceInt, -4) +  '</div></div></div>');
+				$data.append('<div class="winner"><h3>' + winnerText + '</h3><div class="letter">' + winner + '</div></div>');
+
+				// <table><tr><th>Test</th><th>Success</th><th>Failure</th></tr><tr><th>A</th><td></td><td></td></tr><tr><th>B</th><td></td><td></td></tr></table>
+			}
+
+		</script>
+
+		<script>
+			$(function () {
+				// This logs us into SendGrid and gets the categories that the account has
+				$("#settings-form").submit(function (e) {
+					e.preventDefault();
+
+					// Collect the entered variables at time of submission
+					var username = $("#sendgrid-username").val();
+					var password = $("#sendgrid-password").val();
+
+					// Collect the form into a variable, so we can use it later
+					var $settingsForm = $(this);
+
+					// This is a direct proxy of the SendGrid endpoint:
+					// https://api.sendgrid.com/api/stats.get.json
+					// We use this proxy so as to get around CORS
+					$.get("/stats", {"api_user": username, "api_key": password, "list" : 1})
+					.done(function (data) {
+						
+						// Make validated API Credentials global variables, for use later
+						api_user = username;
+						api_key = password;
+
+						// Clear the categories array & select menus
+						categories = [];
+						$(".category").text("");
+						$("#api-error").text("");
+
+						// Loop through each category and log & display them
+						$.each(data, function (index, category) {
+							var category = category.category;
+
+							// Add each category to the category array
+							categories.push(category);
+
+							// Add each category to each category menu
+							$option = $("<option></option>").attr("val", category).text(category);
+							$(".category").append($option);
+						});
+
+
+						// Clear up the interface
+						$settingsForm.hide();
+						$("#change-credentials").show();
+						$("#query-form").show();
+
+					}).fail(function (data) {
+						// If the request fails, display the SendGrid API error
+						if(data.responseJSON){
+							$("#api-error").text(data.responseJSON.error);
+						}
+					});
+				});
+
+				$("#query-form").submit(function (e) {
+					e.preventDefault();
+
+					// Collect the entered variables at time of submission
+					var categoryA = $("#category-a").val();
+					var categoryB = $("#category-b").val();
+					var startDate = $("#start-date").val();
+					var endDate = $("#end-date").val();
+					var confidence = $("#confidence").val();
+
+					// Collect the form into a variable, so we can use it later
+					var $queryForm = $(this);
+
+					// This is a direct proxy of the SendGrid endpoint:
+					// https://api.sendgrid.com/api/stats.get.json
+					// We use this proxy so as to get around CORS
+					$.get("/stats", {"api_user": api_user, "api_key": api_key, "category" : [categoryA, categoryB], "start_date" : startDate, "end_date" : endDate, "aggregate" : 1})
+					.done(function (data) {
+						$("#api-error").text("");
+
+						var statistics = { "a" : {}, "b" : {} };
+
+						// Loop through each category and classify it in the statistics object
+						$.each(data, function (index, category) {
+							if(category.name === categoryA){
+								statistics.a = category;
+							}
+
+							if(category.name === categoryB){
+								statistics.b = category;
+							}
+						});
+
+						console.log(statistics);
+
+						// Calculate the correct confidence for a two sided lookup
+						var trueConfidence = 1 - (1 - confidence/100)/2;
+
+						// Analyze the following data
+						compare(statistics, "unique_clicks", trueConfidence);
+						compare(statistics, "unique_opens", trueConfidence);
+						compare(statistics, "unsubscribes", trueConfidence);
+						compare(statistics, "spamreports", trueConfidence);
+
+					}).fail(function (data) {
+						// If the request fails, display the SendGrid API error
+						if(data.responseJSON){
+							$("#api-error").text(data.responseJSON.error);
+						}
+					});
+				});
+
+				$("#change-credentials").click(function () {
+					$(this).hide();
+					$("#settings-form").show();
+				});
+
+				$("#query-form .date").datepicker({format: "yyyy-mm-dd", "autoclose":true});
+			});
+		</script>
+	</body>
+</html>

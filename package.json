@@ -1,0 +1,12 @@
+{
+  "name": "sendgrid-a-b-test",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "express": "*",
+    "request": "*"
+  },
+  "engines": {
+    "node": "0.10.*"
+  }
+}
