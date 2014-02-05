@@ -13,9 +13,91 @@
 
 		<style>
 
+			header, #settings {
+				text-align: center;
+			}
+
+			#api-error, #change-credentials, #query-form, .panel {
+				display: none;
+			}
+
+			header {
+				padding: 1% 10%;
+				background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAACgCAMAAACsXRuGAAAADFBMVEWIiIjd3d3y8vLm5uZzdc63AAAAbklEQVR42u3ZIQ4AIAwDwI39/8/wAlTFxFUgm5ALmFZV51Iv52Vyx/7CzhdONr3/ylCgQIECBQoUKFCgQIECBQoUKFCgQIECBcrmccGe4qX4vqBAgQIFChQoUKBAgQIFChQoUKBAgQIFij3lX3gBXBBzc8FaGvIAAAAASUVORK5CYII=);
+			}
+
+			#api-error {
+				background: #be141f;
+				color: #000;
+				padding: 10px 10%;
+			}
+
+			#settings-form {
+				background: #298dcd;
+				padding: 3% 10%;
+			}
+
+			#change-credentials {
+				background: #298dcd;
+				color: #fff;
+				padding: 10px 10%;
+			}
+
+			#query-form {
+				background: #c1c1c1;
+				padding: 3% 10%;
+			}
+
+			#query-form .btn {
+				margin-top: 24px;
+			}
+
+			.panel {
+				padding: 2% 10%;
+			}
+
+			.panel h2 {
+				font-size: 3em;
+			}
+
+			.panel table, .panel .success-rate, .panel .winner {
+				margin: 10px 60px;
+			}
+
+			.panel table {
+				max-width: 100%;
+				width: 400px;
+				height: 200px;
+				font-size: 1.6em;
+				float: left;
+				margin-left: 0;
+			}
+
+			.panel table th, .panel table td {
+				text-align: center;
+			}
+
+			.panel .success-rate {
+				float: left;
+			}
+
+			.panel .success-rate div {
+				font-size: 1.6em;
+			}
+
+			.panel .winner {
+				float: left;
+				margin-right: 0;
+			}
+
+			.panel .winner .letter {
+				font-size: 10em;
+				text-transform: uppercase;
+				line-height: 1;
+			}
+
 			.panel:nth-child(2n+1) {
 				background: #efefef;
-				padding: 2% 0;
 			}
 
 		</style>
@@ -41,7 +123,7 @@
 		<!-- https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/round#Example:_Decimal_rounding -->
 		<script src="/js/decimalrounding.js"></script>
 	</head>
-	<body data-run="false">
+	<body>
 		<header>
 			<h1>A/B Test SendGrid Email</h1>
 			<p class="muted">Compare categories and their metrics</p>
@@ -55,7 +137,7 @@
 				</div>
 				<div class="form-group">
 					<label class="sr-only" for="sendgrid-password">SendGrid Password</label>
-					<input type="text" placeholder="SendGrid Password" name="sendgrid-password" id="sendgrid-password" class="form-control">
+					<input type="password" placeholder="SendGrid Password" name="sendgrid-password" id="sendgrid-password" class="form-control">
 				</div>
 				<button class="btn btn-default" type="submit">Submit</button>
 			</form>
@@ -86,19 +168,19 @@
 				<button class="btn btn-default" type="submit">Submit</button>
 			</div>
 		</div>
-		<div class="panel" id="unique_opens" data-type="positive">
+		<div class="panel clearfix" id="unique_opens" data-type="positive">
 			<h2>Unique Opens</h2>
 			<div class="data"></div>
 		</div>
-		<div class="panel" id="unique_clicks" data-type="positive">
+		<div class="panel clearfix" id="unique_clicks" data-type="positive">
 			<h2>Unique Clicks</h2>
 			<div class="data"></div>
 		</div>
-		<div class="panel" id="unsubscribes" data-type="negative">
+		<div class="panel clearfix" id="unsubscribes" data-type="negative">
 			<h2>Unsubscribes</h2>
 			<div class="data"></div>
 		</div>
-		<div class="panel" id="spamreports" data-type="negative">
+		<div class="panel clearfix" id="spamreports" data-type="negative">
 			<h2>Spam Reports</h2>
 			<div class="data"></div>
 		</div>
@@ -172,7 +254,7 @@
 				$data.append('<div class="success-rate"><div class="test"><h3>A - Success Rate</h3><div>' + Math.round10(a.probability, -4) + ' &plusmn; ' + Math.round10(a.confidenceInt, -4) +  '</div></div><div class="test"><h3>B - Success Rate</h3><div>' + Math.round10(b.probability, -4) + ' &plusmn; ' + Math.round10(b.confidenceInt, -4) +  '</div></div></div>');
 				$data.append('<div class="winner"><h3>' + winnerText + '</h3><div class="letter">' + winner + '</div></div>');
 
-				// <table><tr><th>Test</th><th>Success</th><th>Failure</th></tr><tr><th>A</th><td></td><td></td></tr><tr><th>B</th><td></td><td></td></tr></table>
+				$data.closest(".panel").show();
 			}
 
 		</script>
@@ -220,13 +302,14 @@
 
 						// Clear up the interface
 						$settingsForm.hide();
+						$("#api-error").hide();
 						$("#change-credentials").show();
 						$("#query-form").show();
 
 					}).fail(function (data) {
 						// If the request fails, display the SendGrid API error
 						if(data.responseJSON){
-							$("#api-error").text(data.responseJSON.error);
+							$("#api-error").text(data.responseJSON.error).show();
 						}
 					});
 				});
@@ -264,8 +347,6 @@
 							}
 						});
 
-						console.log(statistics);
-
 						// Calculate the correct confidence for a two sided lookup
 						var trueConfidence = 1 - (1 - confidence/100)/2;
 
@@ -275,10 +356,12 @@
 						compare(statistics, "unsubscribes", trueConfidence);
 						compare(statistics, "spamreports", trueConfidence);
 
+						$("#api-error").hide();
+
 					}).fail(function (data) {
 						// If the request fails, display the SendGrid API error
 						if(data.responseJSON){
-							$("#api-error").text(data.responseJSON.error);
+							$("#api-error").text(data.responseJSON.error).show();
 						}
 					});
 				});
